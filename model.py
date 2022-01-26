@@ -1,103 +1,69 @@
-import cv2
-import numpy as np
 from pathlib import Path
-from typing import List,Tuple
-import matplotlib.pyplot as plt
-import seaborn as sns
+from typing import Dict
+
+import numpy as np
 import pandas as pd
+from sklearn.model_selection import GridSearchCV
+from xgboost import XGBRegressor
+
+from dataset import chronology_images_dataset
 
 
-class chronology_images:
-    # ==============================================================
-    def __init__(self, algo_detect: str):
-        if algo_detect == 'orb':
-            self.detector = cv2.ORB_create(7000)
+class image_chronology_model:
+    # ======================================================================================
+    def __init__(self, algo: str, param_grid: Dict) -> None:
+        if algo == 'XGB':
+            model = XGBRegressor(n_estimators=100, max_depth=7, eta=0.011, subsample=0.7, colsample_bytree=0.8)
+            gridsearch = GridSearchCV(model, param_grid=param_grid, cv=5,
+                                      scoring='neg_mean_squared_error')
+            self.gridsearch = gridsearch
 
-    # ==============================================================
-    def match_2_imgs(self, ref_path: Path, img_path: Path) -> np.ndarray:
-        """
-        :param ref:
-        :param img:
-        :return: transformed img wrt the reference
-        """
-        img_color = cv2.imread(str(img_path))  # Image to be aligned.
-        ref_color = cv2.imread(str(ref_path))  # Reference image.
-
-        # Convert to grayscale.
-        img = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
-        ref = cv2.cvtColor(ref_color, cv2.COLOR_BGR2GRAY)
-
-        height, width = ref.shape
-        kp_img, d_img = self.detector.detectAndCompute(img, None)
-        kp_ref, d_ref = self.detector.detectAndCompute(ref, None)
-        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        # Match the two sets of descriptors.
-        matches = matcher.match(d_img, d_ref)
-
-        matches.sort(key=lambda x: x.distance)
-
-        # Take the top 90 % matches forward.
-        matches = matches[:int(len(matches) * 0.9)]
-        no_of_matches = len(matches)
-
-        # Define empty matrices of shape no_of_matches * 2.
-        p1 = np.zeros((no_of_matches, 2))
-        p2 = np.zeros((no_of_matches, 2))
-
-        for i in range(len(matches)):
-            p1[i, :] = kp_img[matches[i].queryIdx].pt
-            p2[i, :] = kp_ref[matches[i].trainIdx].pt
-
-        # Find the homography matrix.
-        homography, mask = cv2.findHomography(p1, p2, cv2.RANSAC)
-
-        # Use this matrix to transform the
-        # colored image wrt the reference image.
-        return cv2.warpPerspective(img_color, homography, (width, height))
-
-    # ==============================================================
-    @staticmethod
-    def get_similarity_images(img1: np.ndarray, img2: np.ndarray, algo: str = 'Euclidean'):
-        if algo == 'Euclidean':
-            return np.sqrt(np.sum(np.square(img1.flatten() - img2.flatten())))
-
-    # ==============================================================
-    def __call__(self, ref_path: Path, path_imges: List[Path]) -> Tuple[np.ndarray,np.ndarray]:
-        """
-        return the sort of similarity between each image and the reference image
-        :param path_imges:
-        :return:
-        """
-
-        img_ref = cv2.imread(str(ref_path))
-        result_similarity = []
-        for img_path in path_imges:
-            transformed_img = self.match_2_imgs(ref_path=ref_path, img_path=img_path)
-            result_similarity.append(self.get_similarity_images(img_ref, transformed_img))
-        result_similarity=np.sort(result_similarity)
-        return np.array(result_similarity).argsort(), result_similarity
+    # ======================================================================================
+    def __call__(self, features: np.ndarray) -> np.ndarray:
+        return self.gridsearch.predict(features)
 
 
 # ===============================================================================================
 if __name__ == '__main__':
-    pathimg = Path(__file__).parent / 'sky'
-    path_imges = []
-    files = pathimg.glob('*.png')
-    for i in files:
-        path_imges.append(i)
-    ci = chronology_images('orb')
-    ref_path=pathimg/'11_ordered.png'
-    img_order,result_similarity=ci(ref_path=ref_path,path_imges=path_imges)
 
-    data=pd.DataFrame()
-    data['order']=img_order
-    data['similarity']=result_similarity
+    E = pd.read_csv('data_train.csv')
+    param_grid = {'n_estimators': [200, 250, 300], 'subsample': [0.98, 0.99]}
+    icm = image_chronology_model('XGB', param_grid=param_grid)
 
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    video = cv2.VideoWriter('video.mp4', fourcc, 1, (cv2.imread(str(path_imges[0])).shape[0],cv2.imread(str(path_imges[0])).shape[1]))
-    for index,i in enumerate(img_order):
-        cv2.imwrite(f'{index}_ordered.png',cv2.imread(str(path_imges[i])))
-        video.write(cv2.imread(str(path_imges[i])))
+    icm.gridsearch.fit(E[['homography_0', 'homography_1', 'homography_2',
+                          'homography_3', 'homography_4', 'homography_5', 'homography_6', 'homography_7',
+                          'homography_8']],
+                       E['order'])
 
+    print('best param', icm.gridsearch.best_params_, 'best score', -icm.gridsearch.best_score_)
 
+    ci = chronology_images_dataset('orb')
+    path_parent = Path(__file__).parent / 'validate_sm'
+    data_train = pd.DataFrame()
+    list_path = []
+    for path_image in path_parent.iterdir():
+        list_path.append(str(path_image))
+    list_path_sorted = sorted(list_path, key=lambda x: int(x.split('\\')[1][3:]))
+    result_final = pd.DataFrame()
+    setId = []
+    day = []
 
+    for pathimg in list_path_sorted:
+
+        path_img = Path(__file__).parent / Path(pathimg)
+        path_imges = []
+        files = path_img.glob('*.jpeg')
+        for i in files:
+            path_imges.append(i)
+
+        E = ci(path_imges=path_imges, set='test')
+        result = icm(E[['homography_0', 'homography_1', 'homography_2',
+                        'homography_3', 'homography_4', 'homography_5', 'homography_6', 'homography_7',
+                        'homography_8']])
+
+        setId.append(int(str(pathimg).split('\\')[1][3:]))
+        day.append(np.argsort(result) + 1)
+
+    result_final['setId'] = setId
+    result_final['day'] = day
+    result_final.to_csv('result_final.csv', index=False)
