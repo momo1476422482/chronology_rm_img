@@ -54,10 +54,12 @@ class chronology_images_dataset:
         """
         img = self.load_image(img_path)
         ref = self.load_image(ref_path)
+        detector = cv2.ORB_create(1000)
 
         height, width = ref.shape
-        kp_img, d_img = self.detector.detectAndCompute(img, None)
-        kp_ref, d_ref = self.detector.detectAndCompute(ref, None)
+        kp_img, d_img = detector.detectAndCompute(img, None)
+
+        kp_ref, d_ref = detector.detectAndCompute(ref, None)
 
         if self.algo_detect == 'orb' or 'brisk':
             matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
@@ -65,7 +67,8 @@ class chronology_images_dataset:
             matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
 
         # Match the two sets of descriptors.
-        matches = matcher.match(d_img, d_ref)
+        matches = matcher.match(d_ref, d_img)
+
         matches.sort(key=lambda x: x.distance)
 
         # Take the top 90 % matches forward.
@@ -87,11 +90,11 @@ class chronology_images_dataset:
         # Use this matrix to transform the
         # colored image wrt the reference image.
 
-        return {'matches': matches, 'homography': homography.reshape(1, -1).tolist(), 'nb_inliners': nb_inliners}
+        return {'matches': matches, 'homography': homography.reshape(1, -1).tolist(), 'nb_inliners': nb_inliners,'nb_matches':no_of_matches}
 
     # ===========================================================================================
     def get_features_from_seq_images(self, path_imges: List[Path], seq: np.ndarray) -> Tuple[list
-    , list]:
+    , list,list]:
         """
         get matching features from a sequence of images (features are computed two /two)
         :param ref_path:
@@ -100,6 +103,7 @@ class chronology_images_dataset:
         """
         resdes = []
         res_hom = []
+        res_nb_match=[]
         for idx, name in enumerate(seq):
 
             if idx == 4:  # for last element
@@ -113,12 +117,13 @@ class chronology_images_dataset:
             for m in mlist:
                 deses[m] += 1
             resdes.extend(deses.values())
+            res_nb_match.append(dict_result['nb_matches'])
 
             homographies = dict_result['homography']
 
             res_hom.extend(homographies[0])
 
-        return resdes, res_hom
+        return resdes, res_hom,res_nb_match
 
     # ==============================================================
     def get_similarity_two_image_sets(self, img_set1: List[Path], img_set2: List[Path]):
@@ -154,7 +159,7 @@ class chronology_images_dataset:
                 else:
                     right = 0
 
-            matches, homographies = self.get_features_from_seq_images(path_imges=path_imgs, seq=seq)
+            matches, homographies,nb_matches = self.get_features_from_seq_images(path_imges=path_imgs, seq=seq)
             # sequence to file order
             flist = []
             for n in [1, 2, 3, 4, 5]:
@@ -164,11 +169,13 @@ class chronology_images_dataset:
                 seq=' '.join([str(i) for i in seq]),
                 files=' '.join([str(i) for i in flist]),
                 match=' '.join([str(i) for i in matches]),
-                homography=' '.join([str(i) for i in homographies])
+                homography=' '.join([str(i) for i in homographies]),
+                nb_match=' '.join([str(i) for i in nb_matches])
             )
             if set == 'train':
                 row['right'] = right
             train_set.append(row)
+            print(row)
 
         # save frame
         df = pd.DataFrame(train_set)
@@ -184,17 +191,17 @@ def di(img_set_path: Path):
     :return:
     """
 
-    ci = chronology_images_dataset('orb', threshold=100, nb_sequence=30)
-    print(img_set_path)
-    return_dict = ci(img_set_path, 'train')
-    print(f'return result of {img_set_path}')
+    ci = chronology_images_dataset('orb', threshold=100, nb_sequence=70)
+
+    return_dict = ci(img_set_path, 'test')
+
     return return_dict
 
 
 # ===============================================================================================
 if __name__ == '__main__':
 
-    path_parent = Path(__file__).parent / 'train_smaller'
+    path_parent = Path(__file__).parent / 'test_sm'
     data_train = pd.DataFrame()
     list_path = [f for f in path_parent.iterdir() if f.is_dir()]
     list_path_set = [Path(__file__).parent / f for f in list_path]
@@ -204,4 +211,4 @@ if __name__ == '__main__':
     res = pd.DataFrame()
     for ee in res_list:
         res = pd.concat([res, ee])
-    res.to_csv('data_train_30_small.csv')
+    res.to_csv('data_test_70.csv')
