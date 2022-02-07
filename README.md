@@ -2,3 +2,5 @@
 
 It seems that the feature 'homography' is more useful than the others.
 Using data_train_50.csv/data_test_50.csv, the best result acheievd is 0.14316 (private Leadboard)
+
+Inspired by the great job done by https://github.com/cybermatt/kaggle-draper 
