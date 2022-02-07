@@ -27,7 +27,7 @@ class image_chronology:
         predict = pd.DataFrame()
         self.prediction = self.model.predict(features_test)
         np.savetxt(
-            Path(__file__).parent / 'prediction.csv',
+            Path(__file__).parent / 'prediction_orig.csv',
             self.prediction
         )
 
@@ -36,6 +36,7 @@ class image_chronology:
         final = []
         list_path = []
         res = self.prediction
+        features['prediction']=res
 
         for path_image in [f for f in path_root.iterdir() if f.is_dir()]:
             list_path.append(str(path_image.name))
@@ -44,6 +45,7 @@ class image_chronology:
             slp_name = sorted_lp[3:]
 
             subs = features[features['setId'] == int(slp_name)]
+
 
             ids = subs.index.tolist()
             maxval = 0.0
@@ -60,11 +62,8 @@ class image_chronology:
             ))
         res_frame = pd.DataFrame(final)
         res_frame.to_csv(
-            Path(__file__).parent / 'final_result150.csv',
-            sep=",",
-            index=False,
-            quoting=csv.QUOTE_NONE, escapechar=' '
-        )
+            Path(__file__).parent / 'final_result150_o.csv',
+            index=False)
 
 
 def order_importance(dataset):
@@ -84,14 +83,16 @@ def order_importance(dataset):
 if __name__ == '__main__':
     seed = 77
     np.random.seed(seed)
-    train_path='extract_kaggle_draper_csv/train-set-30-smaller.csv'
-    test_path='extract_kaggle_draper_csv/test-set-30-smaller.csv'
+    train_path='extract_kaggle_draper_csv/train-set-50-smaller.csv'
+    test_path='extract_kaggle_draper_csv/test-set-50-smaller.csv'
     """
     Extraction of training features
     """
     train = pd.read_csv(train_path)
     Y = train['right']
     X = np.genfromtxt(train['match'])
+
+
     '''
     nb_match = np.genfromtxt(train['nb_match'])
     for i in range(X_match.shape[0]):
@@ -102,37 +103,26 @@ if __name__ == '__main__':
         l[200:300] = l[200:300] / n[2]
         l[300:400] = l[300:400] / n[3]
         X_match[i, :]=l
-    X=X_match
+    
     '''
 
     # normalization
-    X = normalize(order_importance(X), norm='l1')
+    X = normalize((X), norm='l1')
+
 
     # Test set
     test = pd.read_csv(test_path)
-    '''
-    X_match = np.genfromtxt(test['match'])
-    nb_match = np.genfromtxt(test['nb_match'])
-    for i in range(X_match.shape[0]):
-        l = X_match[i, :]
-        n = nb_match[i, :]
-        l[0:100] = l[0:100] / n[0]
-        l[100:200] = l[100:200] / n[1]
-        l[200:300] = l[200:300] / n[2]
-        l[300:400] = l[300:400] / n[3]
-        X_match[i, :] = l
-    test_X = X_match
-    '''
-    test_X=X_match = np.genfromtxt(test['match'])
+    test_X=np.genfromtxt(test['match'])
 
     # normalization
-    test_X = normalize(order_importance(test_X), norm='l1')
+    test_X = normalize(test_X, norm='l1')
+
 
 
     """
     Train model
     """
-    param_grid = {'n_estimators': [100], 'subsample': [0.9], 'max_depth': [7],'colsample_bytree': [0.8]}
+    param_grid = {'n_estimators': [250], 'subsample': [0.95], 'max_depth': [7],'colsample_bytree': [0.8]}
 
     model = image_chronology_model('XGB', param_grid=param_grid)
     ic = image_chronology(model=model.model)

@@ -54,12 +54,12 @@ class chronology_images_dataset:
         """
         img = self.load_image(img_path)
         ref = self.load_image(ref_path)
-        detector = cv2.ORB_create(1000)
+
 
         height, width = ref.shape
-        kp_img, d_img = detector.detectAndCompute(img, None)
+        kp_img, d_img = self.detector.detectAndCompute(img, None)
 
-        kp_ref, d_ref = detector.detectAndCompute(ref, None)
+        kp_ref, d_ref = self.detector.detectAndCompute(ref, None)
 
         if self.algo_detect == 'orb' or 'brisk':
             matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
@@ -69,7 +69,8 @@ class chronology_images_dataset:
         # Match the two sets of descriptors.
         matches = matcher.match(d_ref, d_img)
 
-        matches.sort(key=lambda x: x.distance)
+        matches = sorted(matches, key=lambda val: val.distance)
+
 
         # Take the top 90 % matches forward.
         # matches = matches[:int(len(matches) * 0.9)]
@@ -86,6 +87,7 @@ class chronology_images_dataset:
         # Find the homography matrix.
         homography, mask = cv2.findHomography(p1, p2, cv2.RANSAC)
         nb_inliners = p1.shape[0]
+
 
         # Use this matrix to transform the
         # colored image wrt the reference image.
@@ -111,12 +113,16 @@ class chronology_images_dataset:
             ref_path = path_imges[seq[idx] - 1]
             img_path = path_imges[seq[idx + 1] - 1]
             dict_result = self.get_features_2_images(ref_path, img_path)
+
             matches = dict_result['matches']
             mlist = [match.distance for match in matches if match.distance < self.threshold]
             deses = {x: 0 for x in range(0, self.threshold)}
+
+
             for m in mlist:
                 deses[m] += 1
             resdes.extend(deses.values())
+
             res_nb_match.append(dict_result['nb_matches'])
 
             homographies = dict_result['homography']
@@ -168,18 +174,18 @@ class chronology_images_dataset:
                 setId=str(path_imge_set.name[3:]),
                 seq=' '.join([str(i) for i in seq]),
                 files=' '.join([str(i) for i in flist]),
-                match=' '.join([str(i) for i in matches]),
+                match=' '.join(str(i) for i in matches),
                 homography=' '.join([str(i) for i in homographies]),
                 nb_match=' '.join([str(i) for i in nb_matches])
             )
             if set == 'train':
                 row['right'] = right
             train_set.append(row)
-            print(row)
+
+
 
         # save frame
         df = pd.DataFrame(train_set)
-        df.index.name = 'ID'
         return df
 
 
@@ -191,9 +197,9 @@ def di(img_set_path: Path):
     :return:
     """
 
-    ci = chronology_images_dataset('orb', threshold=100, nb_sequence=70)
+    ci = chronology_images_dataset('orb', threshold=100, nb_sequence=1)
 
-    return_dict = ci(img_set_path, 'test')
+    return_dict = ci(img_set_path, 'train')
 
     return return_dict
 
@@ -201,14 +207,15 @@ def di(img_set_path: Path):
 # ===============================================================================================
 if __name__ == '__main__':
 
-    path_parent = Path(__file__).parent / 'test_sm'
+    path_parent = Path(__file__).parent / 'train_sm'
     data_train = pd.DataFrame()
     list_path = [f for f in path_parent.iterdir() if f.is_dir()]
     list_path_set = [Path(__file__).parent / f for f in list_path]
 
-    pool = Pool(processes=8)
+    pool = Pool(processes=1)
     res_list = pool.map(di, list_path_set)
     res = pd.DataFrame()
     for ee in res_list:
         res = pd.concat([res, ee])
-    res.to_csv('data_test_70.csv')
+
+    res.to_csv('data_test_70_1.csv')
